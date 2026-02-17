@@ -1,10 +1,9 @@
-import os
-import subprocess
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 from fraud_rules import apply_all_rules
 
 # ── Page config ──────────────────────────────────────────────────────────────
@@ -17,12 +16,35 @@ st.set_page_config(
 # ── Load & process data ──────────────────────────────────────────────────────
 @st.cache_data
 def load_data():
-    # Auto-generate data if CSV doesn't exist
-    if not os.path.exists('transactions.csv'):
-        with st.spinner("Generating transaction data for the first time..."):
-            subprocess.run(['python', 'generate_data.py'])
-    
-    df = pd.read_csv('transactions.csv', parse_dates=['timestamp'])
+    np.random.seed(42)
+    n = 10000
+
+    timestamps = [
+        datetime.now() - timedelta(
+            days=int(np.random.randint(0, 30)),
+            hours=int(np.random.randint(0, 24)),
+            minutes=int(np.random.randint(0, 60))
+        )
+        for _ in range(n)
+    ]
+
+    df = pd.DataFrame({
+        'transaction_id':    [f'TXN{i:06d}' for i in range(n)],
+        'timestamp':         timestamps,
+        'amount':            np.random.lognormal(5, 2, n).round(2),
+        'user_id':           [f'USER{np.random.randint(1, 500):04d}' for _ in range(n)],
+        'merchant_category': np.random.choice(['Food', 'Shopping', 'Bills', 'Transfer', 'Entertainment'], n),
+        'device_id':         [f'DEVICE{np.random.randint(1, 600):04d}' for _ in range(n)],
+        'location':          np.random.choice(['Mumbai', 'Delhi', 'Bangalore', 'Pune', 'Hyderabad'], n),
+    })
+
+    # Inject fraud — 5%
+    fraud_indices = np.random.choice(n, size=int(n * 0.05), replace=False)
+    df.loc[fraud_indices, 'amount'] = (
+        df.loc[fraud_indices, 'amount'] * np.random.uniform(3, 10, size=len(fraud_indices))
+    ).round(2)
+    df['is_fraud'] = df.index.isin(fraud_indices)
+
     df = apply_all_rules(df)
     return df
 
@@ -57,7 +79,6 @@ tab1, tab2, tab3 = st.tabs(["🚨 Real-time Alerts", "📊 Pattern Analysis", "�
 with tab1:
     st.subheader("Flagged Transactions")
 
-    # Filters
     c1, c2, c3 = st.columns(3)
     risk_filter = c1.multiselect(
         "Risk Level",
@@ -95,7 +116,6 @@ with tab1:
 
     st.caption(f"Showing {len(view):,} transactions matching filters")
 
-    # Download button
     csv = view[display_cols].to_csv(index=False)
     st.download_button(
         "⬇️ Download Flagged Transactions",
@@ -216,7 +236,6 @@ with tab2:
 with tab3:
     st.subheader("User Risk Profile")
 
-    # Default to most suspicious user for demo wow-factor
     default_user = df[df['risk_score'] > 0]['user_id'].value_counts().idxmax()
     user_input = st.text_input("Enter User ID (e.g. USER0042)", value=default_user)
 
@@ -225,7 +244,6 @@ with tab3:
     if user_df.empty:
         st.warning("⚠️ No transactions found for this user ID.")
     else:
-        # Summary cards
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total Transactions", len(user_df))
         c2.metric("Flagged",
@@ -234,7 +252,6 @@ with tab3:
         c3.metric("Avg Transaction", f"₹{user_df['amount'].mean():,.0f}")
         c4.metric("Max Risk Score",  f"{user_df['risk_score'].max()}/100")
 
-        # Risk badge
         if 'High' in user_df['risk_label'].values:
             st.error("⛔ HIGH RISK USER — Recommend immediate account review")
         elif 'Medium' in user_df['risk_label'].values:
@@ -243,8 +260,6 @@ with tab3:
             st.success("✅ LOW RISK USER — No immediate action needed")
 
         st.markdown("#### Transaction Timeline")
-
-        # Scatter timeline
         fig6 = px.scatter(
             user_df.sort_values('timestamp'),
             x='timestamp', y='amount',
@@ -257,7 +272,6 @@ with tab3:
         )
         st.plotly_chart(fig6, use_container_width=True)
 
-        # Full transaction table
         st.markdown("#### All Transactions")
         show_cols = [
             'transaction_id', 'timestamp', 'amount', 'merchant_category',
@@ -270,7 +284,6 @@ with tab3:
             use_container_width=True
         )
 
-        # Rules triggered for this user
         st.markdown("#### 🔍 Rules Triggered for This User")
         user_flags = {
             'Velocity':    int(user_df['flag_velocity'].sum()),
