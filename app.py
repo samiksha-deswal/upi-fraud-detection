@@ -109,7 +109,7 @@ with tab1:
     ]
 
     st.dataframe(
-        view[display_cols].style.applymap(color_risk, subset=['risk_label']),
+        view[display_cols].style.map(color_risk, subset=['risk_label']),
         use_container_width=True,
         height=450
     )
